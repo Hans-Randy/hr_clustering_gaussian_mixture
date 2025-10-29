@@ -15,7 +15,7 @@ import os
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore")
 
-RANDOM_STATE = 48
+RANDOM_STATE = 42
 
 def plot_samples(data, title, n_samples=10, n_cols=5, img_h=64, img_w=64):
     """Helper function to plot sample images."""
@@ -120,6 +120,7 @@ def plot_hierarchical_clusters(X_train, X_train_pca, n_clusters=40):
     # Fit the model
     # We use n_clusters=40 to match the number of individuals
     agg_cluster = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+    # Use X_train_pca for clustering
     y_pred_train = agg_cluster.fit_predict(X_train_pca)
     
     # Visualize samples from a few selected clusters
@@ -130,20 +131,32 @@ def plot_hierarchical_clusters(X_train, X_train_pca, n_clusters=40):
     fig, axes = plt.subplots(n_clusters_to_show, n_samples_per_cluster, figsize=(10, 10))
     fig.suptitle(f'Sample Images from {n_clusters_to_show} Hierarchical Clusters (k=40)', fontsize=16, y=1.03)
     
+    # Iterate through the first n_clusters_to_show clusters
     for i in range(n_clusters_to_show):
         cluster_indices = np.where(y_pred_train == i)[0]
+        cluster_size = len(cluster_indices)
         
-        # Pick random samples from this cluster
-        if len(cluster_indices) > 0:
-            selected_indices = np.random.choice(cluster_indices, n_samples_per_cluster, replace=False)
+        # Check if the cluster has enough samples
+        if cluster_size > 0:
+            # Set replace to True if cluster is smaller than sample size
+            replace_sampling = cluster_size < n_samples_per_cluster
+            n_samples = min(cluster_size, n_samples_per_cluster)
             
-            for j, idx in enumerate(selected_indices):
+            selected_indices = np.random.choice(cluster_indices, n_samples, replace=replace_sampling)
+            
+            for j in range(n_samples_per_cluster):
                 ax = axes[i, j]
-                ax.imshow(X_train[idx].reshape(64, 64), cmap=plt.cm.gray)
+                if j < n_samples:
+                    idx = selected_indices[j]
+                    ax.imshow(X_train[idx].reshape(64, 64), cmap=plt.cm.gray)
+                else:
+                    # Hide axis if we didn't sample enough (only possible if replace=False)
+                    ax.set_visible(False) 
+                    
                 ax.set_xticks(())
                 ax.set_yticks(())
                 if j == 0:
-                    ax.set_ylabel(f'Cluster {i}', fontsize=12)
+                    ax.set_ylabel(f'Cluster {i} (n={cluster_size})', fontsize=12)
         else:
             # Handle empty clusters if any
             for j in range(n_samples_per_cluster):
@@ -256,20 +269,24 @@ def plot_gmm_clusters(X_train, X_train_pca, best_gmm):
 
 def create_anomalies(images, n_anomalies=5):
     """Applies transformations to create anomalous images."""
-    print("\nCreating anomalous images...")
+    print("\n[Q1.9] Creating anomalous images...")
     anomalies = []
-    original_images = images[:n_anomalies]
+    # Images in X_test are flattened (4096 dimensions). Skimage functions expect 2D or 3D images.
+    
+    # Extract the first n_anomalies samples and reshape them for skimage
+    original_images_flat = images[:n_anomalies]
+    original_images_2d = original_images_flat.reshape(n_anomalies, 64, 64)
     
     # 1. Rotate
-    anomalies.append(rotate(original_images[0], angle=45, resize=False, cval=0, preserve_range=True))
+    anomalies.append(rotate(original_images_2d[0], angle=45, resize=False, cval=0, preserve_range=True))
     # 2. Flip
-    anomalies.append(np.fliplr(original_images[1]))
-    # 3. Darken
-    anomalies.append(exposure.adjust_gamma(original_images[2], gamma=2.0))
-    # 4. Noise
-    anomalies.append(random_noise(original_images[3], mode='s&p', amount=0.3))
+    anomalies.append(np.fliplr(original_images_2d[1]))
+    # 3. Darken (Gamma correction)
+    anomalies.append(exposure.adjust_gamma(original_images_2d[2], gamma=2.0))
+    # 4. Noise (Salt and Pepper)
+    anomalies.append(random_noise(original_images_2d[3], mode='s&p', amount=0.3))
     # 5. Rotate 90
-    anomalies.append(rotate(original_images[4], angle=90, resize=False, cval=0, preserve_range=True))
+    anomalies.append(rotate(original_images_2d[4], angle=90, resize=False, cval=0, preserve_range=True))
     
     anomalies = np.array(anomalies)
     
@@ -282,14 +299,14 @@ def create_anomalies(images, n_anomalies=5):
     
     for i in range(n_anomalies):
         # Plot original
-        axes[0, i].imshow(original_images[i].reshape(64, 64), cmap=plt.cm.gray)
+        axes[0, i].imshow(original_images_2d[i], cmap=plt.cm.gray)
         axes[0, i].set_xticks(())
         axes[0, i].set_yticks(())
         if i == 0:
             axes[0, i].set_ylabel('Original')
             
         # Plot anomaly
-        axes[1, i].imshow(anomalies[i].reshape(64, 64), cmap=plt.cm.gray)
+        axes[1, i].imshow(anomalies[i], cmap=plt.cm.gray)
         axes[1, i].set_xticks(())
         axes[1, i].set_yticks(())
         if i == 0:
@@ -307,16 +324,19 @@ def create_anomalies(images, n_anomalies=5):
     print(f"Saved plot to {filename}")
     plt.close()
     
-    return anomalies
+    # Return the anomalies in the *flattened* format, consistent with the input for PCA/GMM
+    return anomalies.reshape(anomalies.shape[0], -1)
+
 
 
 def main():
     print("Loading Olivetti Faces dataset...")
     # Using 'data_home' to cache the dataset in a local directory
-    if not os.path.exists('olivetti_faces_data'):
-        os.makedirs('olivetti_faces_data')
-        
-    olivetti = fetch_olivetti_faces(data_home='olivetti_faces_data', shuffle=True, random_state=RANDOM_STATE)
+    local_data_dir = 'data/olivetti_faces_data'
+    if not os.path.exists(local_data_dir):
+        os.makedirs(local_data_dir)
+
+    olivetti = fetch_olivetti_faces(data_home=local_data_dir, shuffle=True, random_state=RANDOM_STATE)
     X_hans_randy = olivetti.data  # Image features
     y_hans_randy = olivetti.target  # Labels (person ID)
     
