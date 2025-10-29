@@ -15,6 +15,8 @@ import os
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore")
 
+RANDOM_STATE = 48
+
 def plot_samples(data, title, n_samples=10, n_cols=5, img_h=64, img_w=64):
     """Helper function to plot sample images."""
     print(f"Generating plot: {title}")
@@ -81,12 +83,8 @@ def plot_dendrogram(X_train_pca):
     title = "Hierarchical Clustering Dendrogram"
     print(f"Generating plot: {title}")
     
-    # Rationale: 'ward' linkage minimizes the variance of the clusters being merged.
-    # It is often a good default choice for general-purpose clustering.
     chosen_linkage = 'ward'
-    print(f"\n[Q1.4] Using '{chosen_linkage}' linkage for hierarchical clustering.")
-    print("       Rationale: 'ward' linkage minimizes the within-cluster variance and tends to create clusters of similar size, which is suitable for this dataset where each person (class) has the same number of images.")
-    
+
     # Compute the linkage matrix
     Z = linkage(X_train_pca, method=chosen_linkage)
     
@@ -115,9 +113,9 @@ def plot_dendrogram(X_train_pca):
     
     return Z
 
-def plot_hierarchical_clusters(X_train, y_train, n_clusters=40):
+def plot_hierarchical_clusters(X_train, X_train_pca, n_clusters=40):
     """Fits AgglomerativeClustering and visualizes sample clusters."""
-    print("\n[Q1.5] Fitting AgglomerativeClustering and visualizing clusters.")
+    print("\nFitting AgglomerativeClustering and visualizing clusters.")
     
     # Fit the model
     # We use n_clusters=40 to match the number of individuals
@@ -159,7 +157,7 @@ def plot_hierarchical_clusters(X_train, y_train, n_clusters=40):
 
 def find_best_gmm(X_train_pca):
     """Finds the best GMM covariance type and number of clusters using AIC/BIC."""
-    print("\n[Q1.6] Finding best GMM using AIC/BIC...")
+    print("\nFinding best GMM using AIC/BIC...")
     
     n_components_range = range(30, 51)  # Test around 40 clusters
     covariance_types = ['spherical', 'tied', 'diag', 'full']
@@ -173,7 +171,7 @@ def find_best_gmm(X_train_pca):
     for cov_type in covariance_types:
         print(f"  Testing covariance type: {cov_type}")
         for n_components in n_components_range:
-            gmm = GaussianMixture(n_components=n_components, covariance_type=cov_type, random_state=42)
+            gmm = GaussianMixture(n_components=n_components, covariance_type=cov_type, random_state=RANDOM_STATE)
             gmm.fit(X_train_pca)
             
             aic_scores[cov_type].append(gmm.aic(X_train_pca))
@@ -258,7 +256,7 @@ def plot_gmm_clusters(X_train, X_train_pca, best_gmm):
 
 def create_anomalies(images, n_anomalies=5):
     """Applies transformations to create anomalous images."""
-    print("\n[Q1.9] Creating anomalous images...")
+    print("\nCreating anomalous images...")
     anomalies = []
     original_images = images[:n_anomalies]
     
@@ -313,57 +311,41 @@ def create_anomalies(images, n_anomalies=5):
 
 
 def main():
-    print("COMP 257 Assignment 3: Clustering Olivetti Faces")
-    print("=" * 50)
-
-    # --- Q1.1: Retrieve and load the dataset ---
-    print("\n[Q1.1] Loading Olivetti Faces dataset...")
+    print("Loading Olivetti Faces dataset...")
     # Using 'data_home' to cache the dataset in a local directory
     if not os.path.exists('olivetti_faces_data'):
         os.makedirs('olivetti_faces_data')
         
-    olivetti = fetch_olivetti_faces(data_home='olivetti_faces_data', shuffle=True, random_state=42)
-    X_FirstName = olivetti.data  # Image features
-    y_FirstName = olivetti.target  # Labels (person ID)
+    olivetti = fetch_olivetti_faces(data_home='olivetti_faces_data', shuffle=True, random_state=RANDOM_STATE)
+    X_hans_randy = olivetti.data  # Image features
+    y_hans_randy = olivetti.target  # Labels (person ID)
     
-    print(f"Dataset loaded. Shape of X: {X_FirstName.shape}, Shape of y: {y_FirstName.shape}")
+    print(f"Dataset loaded. Shape of X: {X_hans_randy.shape}, Shape of y: {y_hans_randy.shape}")
     
     # Display a few sample images
-    plot_samples(X_FirstName, "Sample Olivetti Faces", n_samples=10)
+    plot_samples(X_hans_randy, "Sample Olivetti Faces", n_samples=10)
 
-    # --- Q1.2: Preprocess and split the dataset ---
-    print("\n[Q1.2] Splitting dataset with stratified sampling...")
-    # Rationale: We use a 70/15/15 split.
-    # 70% (Train): A large portion for robust model training (PCA, Clustering, GMM).
-    # 15% (Validation): To tune hyperparameters (like GMM components/covariance) if needed.
-    # 15% (Test): To evaluate the final model (e.g., anomaly detection) on unseen data.
-    # Stratification ensures each person is represented proportionally in all sets.
+    print("\nSplitting dataset with stratified sampling...")
     
     # First split: 70% train, 30% temp (for val/test)
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        X_FirstName, y_FirstName, test_size=0.3, random_state=42, stratify=y_FirstName
-    )
+    X_train, X_temp, y_train, y_temp = train_test_split(X_hans_randy, y_hans_randy, test_size=0.3, random_state=RANDOM_STATE, stratify=y_hans_randy)
     
-    # Second split: 50% of temp (i.e., 15% of total) for val, 50% (15% of total) for test
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp
-    )
+    # Second split: 50% of temp (15% of total) for val, 50% (15% of total) for test
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=RANDOM_STATE, stratify=y_temp)
     
     print(f"Split complete:")
     print(f"  Training set:   X={X_train.shape}, y={y_train.shape}")
     print(f"  Validation set: X={X_val.shape}, y={y_val.shape}")
     print(f"  Test set:       X={X_test.shape}, y={y_test.shape}")
-    print("\nRationale for 70/15/15 split: Provides a large training set (70%) for model fitting (PCA, GMM), a validation set (15%) for model selection (e.g., finding best GMM), and a test set (15%) for final evaluation (e.g., anomaly detection). Stratification ensures all 40 people are represented in each set.")
 
     # Plot the stratified distribution
-    plot_stratified_split(y_train, y_val, y_test, y_FirstName)
+    plot_stratified_split(y_train, y_val, y_test, y_hans_randy)
 
-    # --- Q1.3: Apply PCA for dimensionality reduction ---
-    print("\n[Q1.3] Applying PCA...")
+    print("\nApplying PCA...")
     # Retain 99% of variance
-    pca = PCA(n_components=0.99, whiten=True, random_state=42)
+    pca = PCA(n_components=0.99, whiten=True, random_state=RANDOM_STATE)
     
-    # Fit PCA *only* on the training data
+    # Fit PCA only on the training data
     pca.fit(X_train)
     
     # Transform all sets
@@ -375,22 +357,22 @@ def main():
     print(f"  Original dimensions: {X_train.shape[1]}")
     print(f"  Reduced dimensions:  {X_train_pca.shape[1]}")
 
-    # --- Q1.4 & Q1.5: Hierarchical Clustering and Visualization ---
+    # --- Hierarchical Clustering and Visualization ---
     # Plot dendrogram
-    Z = plot_dendrogram(X_train_pca)
+    plot_dendrogram(X_train_pca)
     
     # Plot sample clusters
-    plot_hierarchical_clusters(X_train, y_train, n_clusters=40)
+    plot_hierarchical_clusters(X_train, X_train_pca, n_clusters=40)
     print("Hierarchical clustering and visualization complete.")
 
-    # --- Q1.6: Gaussian Mixture Model (GMM) Clustering ---
+    # --- Gaussian Mixture Model (GMM) Clustering ---
     best_gmm = find_best_gmm(X_train_pca)
     
     # Visualize sample images from the best GMM
     plot_gmm_clusters(X_train, X_train_pca, best_gmm)
 
-    # --- Q1.7: Output Hard & Soft Clustering Assignments ---
-    print("\n[Q1.7] GMM Hard and Soft Clustering Assignments (showing first 5 test samples):")
+    # --- Output Hard & Soft Clustering Assignments ---
+    print("\n[GMM Hard and Soft Clustering Assignments (showing first 5 test samples):")
     
     # Use the test set for this output
     test_samples_pca = X_test_pca[:5]
@@ -407,8 +389,8 @@ def main():
         probs_str = [f"{p:.2f}" for p in soft_probabilities[i, :10]] # Show first 10 clusters
         print(f"    Sample {i} (Cluster {hard_assignments[i]}): [{', '.join(probs_str)} ...]")
 
-    # --- Q1.8: Generate New Faces Using the Model ---
-    print("\n[Q1.8] Generating new synthetic faces using GMM...")
+    # --- Generate New Faces Using the Model ---
+    print("\nGenerating new synthetic faces using GMM...")
     
     # Generate new samples in the PCA space
     n_new_faces = 10
@@ -420,12 +402,12 @@ def main():
     # Visualize the generated faces
     plot_samples(new_faces, "Generated Synthetic Faces", n_samples=n_new_faces)
 
-    # --- Q1.9: Modify Some Images (Create Anomalies) ---
-    # Use the *original* test set images (X_test)
+    # --- Modify Some Images (Create Anomalies) ---
+    # Use the original test set images (X_test)
     anomalous_images = create_anomalies(X_test, n_anomalies=5)
 
-    # --- Q1.10: Detect Anomalies Using the Model ---
-    print("\n[Q1.10] Detecting anomalies using GMM score_samples()...")
+    # --- Detect Anomalies Using the Model ---
+    print("\nDetecting anomalies using GMM score_samples()...")
     
     # We must transform the anomalies into the PCA space
     # Flatten anomalies first (shape (5, 64, 64) -> (5, 4096))
@@ -446,11 +428,8 @@ def main():
     print("    Normal Samples:  ", [f"{s:.2f}" for s in normal_scores])
     print("    Anomalous Samples:", [f"{s:.2f}" for s in anomaly_scores])
     
-    print("\n  Discussion:")
-    print("    The GMM successfully detects anomalies. The log-likelihood scores for the anomalous images are significantly lower (more negative) than the scores for normal images. This indicates that the model finds the transformed images to be highly improbable given the distribution of normal faces it learned during training.")
-
     print("\n" + "=" * 50)
-    print("Assignment 3 Script Execution Complete.")
+    print("Script Execution Complete.")
     print("All plots have been saved as .png files in the current directory.")
 
 if __name__ == "__main__":
